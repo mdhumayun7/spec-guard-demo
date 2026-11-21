@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en" data-static="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spec-Guard</title>
+<meta name="description" content="Spec-Guard: specification-guarded visual programs for referring expressions. M.Tech dissertation demo, SVNIT Surat.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2313202a'/%3E%3Cpath d='M6 16h7l3-6 3 12 3-6h4' fill='none' stroke='%231fa497' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="static/app.css">
+<script src="static/app.js" type="module"></script>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <a class="mark" href="#overview" aria-label="Spec-Guard, overview">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><path d="M6 16h7l3-6 3 12 3-6h4" fill="none" stroke="#1fa497" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Spec-Guard
+    </a>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#overview">Overview</a>
+      <a href="#live">Live demo</a>
+      <a href="#explorer">Test set explorer</a>
+      <a href="#results">Results</a>
+      <a href="#models">Models</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#about">About</a>
+    </nav>
+    <div class="status" id="status" role="status"><span class="dot"></span><span class="txt">Connecting</span></div>
+    <button class="pbtn" id="present" type="button" aria-pressed="false" title="Larger text and controls for a projector">Presenter view</button>
+    <button class="icon-btn" id="theme" type="button" aria-label="Switch between light and dark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- Overview -->
+  <section class="view" id="v-overview" aria-labelledby="h-overview">
+    <div class="hero">
+      <div>
+        <h1 id="h-overview">Find what a sentence points to, and show the program that found it.</h1>
+        <p class="lede">Spec-Guard answers a referring expression such as “the topmost peach of the fifth column from the left”.
+          It first rewrites the expression into a fixed form. When that form passes a check that it states nothing the expression does not, a
+          deterministic program answers; otherwise a code model writes one, and every program runs in a sandbox under checks.</p>
+        <div class="ctas">
+          <a class="btn primary" href="#live">Run a query</a>
+          <a class="btn" href="#explorer">Browse the test set</a>
+        </div>
+      </div>
+      <div class="panel demo-card" id="ov-demo" aria-live="polite"></div>
+    </div>
+    <div class="evidence" id="ov-evidence"></div>
+    <ol class="steps">
+      <li><h3>Normalise</h3><p>Qwen2.5-Coder-7B rewrites the expression into the template line the rule parser reads.</p></li>
+      <li><h3>Route</h3><p>If the line parses and every part of it is stated in the expression, a template program answers with no language model. Otherwise a program is generated.</p></li>
+      <li><h3>Execute and check</h3><p>The program runs over SAM 3, SigLIP 2 and Depth Anything V2 in a restricted sandbox. Spec-Guard checks the program and its answer.</p></li>
+    </ol>
+  </section>
+
+  <!-- Live -->
+  <section class="view" id="v-live" aria-labelledby="h-live">
+    <div class="view-head">
+      <div><h2 id="h-live">Live demo</h2>
+        <p>Choose the task, pick a test image or upload your own, type an expression, and run the registered system on the GPU. Every stage is shown as it ran.</p></div>
+    </div>
+    <div id="live-off"></div>
+    <div class="modebar">
+      <div class="seg" id="live-mode" role="group" aria-label="Task">
+        <button type="button" data-v="openref" aria-pressed="true">OpenRef: ordinal and multi-target</button>
+        <button type="button" data-v="refcoco" aria-pressed="false">RefCOCO: single object</button>
+      </div>
+      <p class="modenote" id="mode-note"></p>
+    </div>
+    <div class="live">
+      <form class="panel pad stack" id="live-form" autocomplete="off">
+        <div>
+          <label class="fld">Image</label>
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload an image: click, or drop a file here">
+            <div id="drop-inner">Drop an image here, or click to choose a file<br><span class="small muted">JPEG or PNG, up to 4096 px per side</span></div>
+          </div>
+          <input type="file" id="file" accept="image/*" hidden>
+          <div class="exs" id="examples" aria-label="Example images from the OpenRef test set"></div>
+        </div>
+        <div>
+          <label class="fld" for="query">Referring expression <span class="count num" id="qcount">0 / 200</span></label>
+          <textarea id="query" maxlength="200" placeholder="the topmost peach of the fifth column from the left"></textarea>
+          <div class="sugg" id="sugg" aria-label="Example expressions"></div>
+        </div>
+        <div class="two-sel">
+          <div><label class="fld" for="opt-writer">Program writer</label><select id="opt-writer"></select></div>
+          <div id="cond-wrap"><label class="fld" for="opt-cond">Prompt</label>
+            <select id="opt-cond"><option value="c5" selected>C5, full specification</option><option value="c4">C4, conditional depth</option><option value="c3">C3, depth API</option><option value="c2">C2, grounding notes</option><option value="c1">C1, API only</option></select></div>
+        </div>
+        <label class="switch" id="pt-wrap"><input type="checkbox" id="opt-pt" checked><span>Property test<small id="pt-note">DeepSeek-Coder-V2-Lite writes a test for the expression and runs it on the answer (E22, E24).</small></span></label>
+        <label class="switch"><input type="checkbox" id="opt-vlm"><span>Compare with Qwen3-VL-8B<small id="vlm-note">Runs the frozen S1 prompt on the same image.</small></span></label>
+        <label class="switch" id="fb-wrap"><input type="checkbox" id="opt-fb"><span>Single-referent fallback<small>When a check fires, answer with the detector’s top box (RefCOCO setting, E21 to E24). Off for OpenRef.</small></span></label>
+        <div class="runrow">
+          <button class="btn primary" id="run" type="submit">Run query <kbd>Ctrl Enter</kbd></button>
+          <button class="btn" id="runall" type="button" title="Runs the OpenRef router, the RefCOCO Spec-Guard and, when loaded, Qwen3-VL-8B on the same image and expression">Compare all methods</button>
+        </div>
+        <div id="live-err" aria-live="assertive"></div>
+        <div id="hist-wrap" hidden><label class="fld">Earlier runs in this tab</label><div class="history" id="history"></div></div>
+      </form>
+      <div class="panel pad" id="live-out" aria-live="polite">
+        <div id="live-rail"></div>
+        <div id="live-body"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Explorer -->
+  <section class="view" id="v-explorer" aria-labelledby="h-explorer">
+    <div class="view-head">
+      <div><h2 id="h-explorer">Test set explorer</h2>
+        <p>Every test row of every archived run, replayed from the stored outputs: OpenRef (E28) and the RefCOCO family (RefCOCO, RefCOCO+, RefCOCOg). Nothing here runs a model, so it works without a GPU.</p></div>
+      <span class="kbd-hint">Keys: J next row, K previous row</span>
+    </div>
+    <div class="modebar">
+      <div class="seg" id="x-ds" role="group" aria-label="Dataset">
+        <button type="button" data-v="openref" aria-pressed="true">OpenRef</button>
+        <button type="button" data-v="refcoco" aria-pressed="false">RefCOCO family</button>
+      </div>
+    </div>
+    <div class="explorer" id="rcx" hidden>
+      <div class="panel">
+        <div class="filters">
+          <div><label class="fld" for="r-split">Split</label><select id="r-split"></select></div>
+          <div><label class="fld" for="r-out">Outcome</label>
+            <select id="r-out"><option value="all">All rows</option><option value="sg_right_program_wrong" selected>Spec-Guard right, program wrong</option>
+              <option value="sg_routed">Spec-Guard fell back to the detector</option><option value="program_right_b0_wrong">Program right, detector wrong</option>
+              <option value="program_wrong">Program wrong</option><option value="vlm_wrong">Qwen3-VL-8B wrong</option></select></div>
+          <div><label class="fld" for="r-q">Search expressions</label><input type="search" id="r-q" placeholder="man, left, red"></div>
+        </div>
+        <div class="rows" id="r-rows" role="list"></div>
+        <div class="listfoot"><span id="r-count" class="num"></span><span><button class="linkbtn" id="r-more" type="button" hidden>Show more</button> <button class="linkbtn" id="r-rand" type="button">Random row</button></span></div>
+      </div>
+      <div class="panel pad" id="r-detail"></div>
+    </div>
+    <div class="explorer" id="orx">
+      <div class="panel">
+        <div class="filters">
+          <div class="seg" id="f-cat" role="group" aria-label="Query type">
+            <button type="button" data-v="all">All</button><button type="button" data-v="ordinal" aria-pressed="true">Ordinal</button><button type="button" data-v="multi">Multi-target</button><button type="button" data-v="single">Single-target</button>
+          </div>
+          <div class="two">
+            <div><label class="fld" for="f-var">Phrasing</label>
+              <select id="f-var"><option value="all">All phrasings</option><option value="P0">P0, template</option><option value="P1">P1, paraphrase</option><option value="P2">P2, paraphrase</option><option value="P3">P3, paraphrase</option><option value="P4" selected>P4, paraphrase</option></select></div>
+            <div><label class="fld" for="f-out">Outcome</label>
+              <select id="f-out"><option value="all">All rows</option><option value="router_right_vlm_wrong" selected>Router right, VLM wrong</option><option value="router_wrong">Router wrong</option><option value="both_right">Both right</option><option value="route_P">Sent to a generated program</option></select></div>
+          </div>
+          <div><label class="fld" for="f-q">Search expressions</label><input type="search" id="f-q" placeholder="peach, column, left"></div>
+        </div>
+        <div class="rows" id="rows" role="list"></div>
+        <div class="listfoot"><span id="rows-count" class="num"></span><span><button class="linkbtn" id="rows-more" type="button" hidden>Show more</button> <button class="linkbtn" id="rows-rand" type="button" title="Any row with this query type and phrasing, ignoring the outcome filter">Random row</button></span></div>
+      </div>
+      <div class="panel pad" id="detail"></div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section class="view" id="v-results" aria-labelledby="h-results">
+    <div class="view-head">
+      <div><h2 id="h-results">Results</h2>
+        <p>Registered results on OpenRef (arXiv 2605.25706) and on RefCOCO, RefCOCO+ and RefCOCOg. Every number on this page is read from the archived result files when the service starts; the file is named on each figure.</p></div>
+    </div>
+    <div class="res-grid" id="res"></div>
+  </section>
+
+  <!-- Models -->
+  <section class="view" id="v-models" aria-labelledby="h-models">
+    <div class="view-head">
+      <div><h2 id="h-models">Models</h2>
+        <p>Every model used in the dissertation, what it does in the system, and its best archived result on each split. Checkpoints are named as loaded from the local cache.</p></div>
+      <a class="btn" href="#results">Compare all models on one table</a>
+    </div>
+    <div id="models"></div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="view" id="v-architecture" aria-labelledby="h-arch">
+    <div class="view-head">
+      <div><h2 id="h-arch">Architecture</h2>
+        <p>Select a component to see its model, its rule and the code that runs it. The service imports the same code as every experiment, so the demo and the reported numbers cannot disagree.</p></div>
+    </div>
+    <div class="arch">
+      <div class="panel pad" id="arch-fig"></div>
+      <aside class="panel pad side" id="arch-side" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="view" id="v-about" aria-labelledby="h-about">
+    <div class="view-head"><div><h2 id="h-about">About this service</h2></div></div>
+    <div class="about" id="about"></div>
+  </section>
+</main>
+
+<footer class="foot"><div>
+  <span>Spec-Guard. M.Tech CSE (Information Security and Privacy), SVNIT Surat. Guide: Prof. Mukesh A. Zaveri.</span>
+  <span id="foot-ver" class="num"></span>
+</div></footer>
+<div class="tip" id="tip" role="tooltip"></div>
+</body>
+</html>

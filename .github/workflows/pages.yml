@@ -1,0 +1,33 @@
+# GitHub Actions workflow for the public static showcase. Copy to .github/workflows/pages.yml in the
+# PUBLIC showcase repository (not in spec-guard). It publishes the folder site/ that
+# deploy/export_static.py wrote and that was committed to that repository.
+name: Publish the Spec-Guard showcase
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the export
+        run: |
+          test -f site/index.html && test -f site/data/summary.json && test -f site/data/health.json
+          python3 -c "import json; d=json.load(open('site/data/health.json')); c=d['refcoco_controls']; assert all(x['passed'] for x in c), 'a reproduction control failed'; print('controls', len(c), 'passed')"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
