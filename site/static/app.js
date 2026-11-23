@@ -314,7 +314,7 @@ async function loadHealth() {
   }
 }
 
-const VIEWS = ["overview", "live", "explorer", "results", "models", "architecture", "about"];
+const VIEWS = ["overview", "findings", "live", "explorer", "results", "models", "architecture", "about"];
 function route() {
   const raw = location.hash.slice(1) || "overview";
   const [view, qs] = raw.split("?");
@@ -322,7 +322,7 @@ function route() {
   for (const x of VIEWS) $(`#v-${x}`).classList.toggle("on", x === v);
   $$("nav.tabs a").forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === `#${v}` ? "page" : "false"));
   const params = new URLSearchParams(qs || "");
-  ({ overview: initOverview, live: initLive, explorer: () => initExplorer(params), results: initResults, models: initModels,
+  ({ overview: initOverview, findings: initFindings, live: initLive, explorer: () => initExplorer(params), results: initResults, models: initModels,
      architecture: initArch, about: initAbout })[v]();
   if (!params.get("row")) scrollTo({ top: 0 });
 }
@@ -1070,7 +1070,7 @@ async function initResults() {
   const box = $("#res");
   const hd = R.headline;
   box.append(
-    h("nav", { class: "seg", "aria-label": "Results sections", style: "justify-self:start" },
+    h("nav", { class: "seg jump", "aria-label": "Results sections" },
       h("a", { href: "#results", class: "linkbtn", style: "padding:6px 12px", onclick: e => { e.preventDefault(); $("#res-best").scrollIntoView({ behavior: "smooth" }); } }, "Best per model"),
       h("a", { href: "#results", class: "linkbtn", style: "padding:6px 12px", onclick: e => { e.preventDefault(); $("#res-or").scrollIntoView({ behavior: "smooth" }); } }, "OpenRef"),
       h("a", { href: "#results", class: "linkbtn", style: "padding:6px 12px", onclick: e => { e.preventDefault(); $("#res-rc").scrollIntoView({ behavior: "smooth" }); } }, "RefCOCO family")),
@@ -1390,6 +1390,390 @@ async function initAbout() {
         h("dt", {}, h("code", {}, "GET /api/rows")), h("dd", {}, "archived test rows with filters"),
         STATIC ? null : h("dt", {}, h("a", { href: "/api/docs" }, "/api/docs")), STATIC ? null : h("dd", {}, "interactive API documentation")))
   );
+}
+
+/* ------------------------------------------------------------------ findings (Phase 2B, comparison with 2026 systems) */
+// Every number is read from summary.phase2b (deploy/results.py phase2b_summary), itself read from archived result
+// files. gRefCOCO and Ref-Adv-s appear as aggregate numbers only (annotation licences not confirmed).
+const PCT = x => `${f2(x)}%`;
+function segCtl(label, opts, cur, onPick) {
+  const box = h("div", { class: "seg", role: "group", "aria-label": label });
+  const draw = v => $$("button", box).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+  for (const [v, name] of opts) box.append(h("button", { type: "button", "data-v": v, onclick: () => { draw(v); onPick(v); } }, name));
+  draw(cur);
+  return box;
+}
+function hbars({ groups, series, max = 100, unit = "", refs = [], aria }) {
+  // grouped horizontal bars; groups: [[key,label,n]], series: [{name,color,values:{key:v}}]
+  const W = 900, left = 150, right = 70, bh = 14, gap = 3, gpad = 16, pw = W - left - right;
+  const svg = h("svg", { class: "ch", role: "img", "aria-label": aria });
+  let y = 8;
+  const X = v => left + pw * Math.max(0, v) / max;
+  for (const t of [0, 25, 50, 75, 100].filter(t => t <= max)) svg.append(h("line", { class: "gl", x1: X(t), x2: X(t), y1: 0, y2: 1, "data-t": t }));
+  const gl = $$("line", svg), gy = {};
+  for (const [g, gname, n] of groups) {
+    const gh = series.length * (bh + gap);
+    gy[g] = [y - 5, y + gh + 2];
+    svg.append(h("text", { class: "lab", x: left - 12, y: y + gh / 2 + 2, "text-anchor": "end" }, gname),
+      n ? h("text", { x: left - 12, y: y + gh / 2 + 16, "text-anchor": "end" }, `n ${n.toLocaleString("en")}`) : "");
+    series.forEach((s, k) => {
+      const v = s.values[g], yy = y + k * (bh + gap);
+      if (v === undefined || v === null) return;
+      const m = h("g", { class: "m" }, h("rect", { class: "mark", x: left, y: yy, width: Math.max(2, X(v) - left), height: bh, rx: 3, style: `fill:${s.color}` }),
+        h("text", { class: "val", x: X(v) + 6, y: yy + bh - 3 }, f2(v, 1)),
+        h("rect", { class: "hit", x: left, y: yy - 1, width: pw, height: bh + 2 }));
+      hover(m, `<b>${esc(s.name)}</b><br>${esc(gname)}: ${f2(v)}${unit}${n ? `<br>n ${n.toLocaleString("en")}` : ""}`);
+      svg.append(m);
+    });
+    y += gh + gpad;
+  }
+  const yb = y - gpad + 4;
+  for (const r of refs) {
+    const [ra, rb] = r.group && gy[r.group] ? gy[r.group] : [0, yb];
+    const g = h("g", { class: "m" }, h("line", { x1: X(r.v), x2: X(r.v), y1: ra, y2: rb, style: "stroke:var(--ink);stroke-width:1.5;stroke-dasharray:3 3" }),
+      h("rect", { class: "hit", x: X(r.v) - 5, y: ra, width: 10, height: rb - ra }));
+    hover(g, `<b>${esc(r.name)}</b>: ${f2(r.v, 1)}${unit}<br>${esc(r.source)}<br>Reported by its authors; not the same run.`);
+    svg.append(g);
+  }
+  gl.forEach(l => { l.setAttribute("y2", yb); svg.append(h("text", { x: l.getAttribute("x1"), y: yb + 16, "text-anchor": "middle" }, l.dataset.t)); });
+  svg.append(h("line", { class: "base", x1: left, x2: left, y1: 0, y2: yb }));
+  svg.setAttribute("viewBox", `0 0 ${W} ${yb + 24}`);
+  return svg;
+}
+const refLegend_ = () => h("span", {}, h("i", { style: "background:none;border-left:2px dashed var(--ink);border-radius:0" }), "published 2026 systems, all rows");
+function refNote(refs, src) {
+  if (!refs.length) return "";
+  return h("p", { class: "note" }, "Dashed lines on the all-rows group, as published by their authors (" + src + "); different runs, not the same rows: " +
+    [...refs].sort((a, b) => b.v - a.v).map(r => `${r.name} ${f2(r.v, 1)}`).join("; ") + ".");
+}
+function legendRow(series, extra = []) {
+  return h("div", { class: "legend" }, ...series.map(s => h("span", {}, h("i", { style: `background:${s.color}` }), s.name)), ...extra);
+}
+function figPanel(title, src, ...kids) {
+  return h("div", { class: "panel pad" }, h("figure", { class: "chart" }, h("figcaption", {}, h("h3", {}, title), h("span", { class: "src" }, src)), ...kids));
+}
+
+async function initFindings() {
+  if (S.inited.findings) return;
+  S.inited.findings = true;
+  const R = S.summary || (S.summary = await api("/api/summary"));
+  const P = R.phase2b, box = $("#fx");
+  if (!P) { box.append(h("p", { class: "muted" }, "This build has no Phase 2B results.")); return; }
+  const g = P.grefcoco, ta = g && g.testA.scores, comp = P.components || [], c0 = comp[0], adv = P.refadv;
+  const cards = [];
+  if (ta) cards.push(h("div", {}, h("div", { class: "fig" }, f2(ta.router.none.exact_set), h("small", {}, "%")),
+    h("p", {}, `of the gRefCOCO testA expressions with no target are answered “nothing here” by the router; Qwen3-VL-8B does so on ${f2(ta.vlm.none.exact_set)}% with its own prompt and ${f2(ta.vlm_e.none.exact_set)}% when told it may (E30, E33).`)));
+  if (c0) cards.push(h("div", {}, h("div", { class: "fig" }, sg(c0.both_minus_program.diff), h("small", {}, "points")),
+    h("p", {}, `from the decidable checks over the unchecked program on untouched ${c0.setting} (95% interval ${sg(c0.both_minus_program.ci95[0])} to ${sg(c0.both_minus_program.ci95[1])}); the checks raise the program on every benchmark tested.`)));
+  if (c0) cards.push(h("div", {}, h("div", { class: "fig" }, f2(c0.accepted_acc.both), h("small", {}, "%")),
+    h("p", {}, `accuracy of the programs the checks accept on ${c0.setting}, at ${f2(c0.coverage.both, 1)}% coverage, against ${f2(c0.accuracy.program)}% for all programs.`)));
+  if (adv) cards.push(h("div", {}, h("div", { class: "fig" }, f2(adv.scores.specguard.all["acc@0.5"]), h("small", {}, "%")),
+    h("p", {}, `Spec-Guard on the adversarial Ref-Adv-s, against ${f2(adv.scores.qwen3vl.all["acc@0.5"])}% for Qwen3-VL-8B: where an end-to-end 2026 model is far ahead, stated as a limit.`)));
+  box.append(
+    h("nav", { class: "seg jump", "aria-label": "Findings sections" }, ...[["fx-walk", "Pipeline walkthrough"], ["fx-g", "Absent objects"], ["fx-adv", "Adversarial"],
+      ["fx-sel", "What the checks accept"], ["fx-cost", "Cost"], ["fx-hyp", "Hypotheses"], ["fx-lim", "Limits"], ["fx-figs", "Figures"]]
+      .map(([id, n]) => h("a", { href: "#findings", class: "linkbtn", onclick: e => { e.preventDefault(); $("#" + id).scrollIntoView({ behavior: reduced ? "auto" : "smooth" }); } }, n))),
+    h("div", { class: "evidence fx-cards" }, ...cards),
+    walkthrough(P.walkthrough),
+    grefcocoPanel(g, R.published),
+    refadvPanel(adv, R.published),
+    selectivePanel(comp, P.note_a),
+    costPanel(P.cost),
+    hypPanel(P.hypotheses),
+    limitsPanel(P, R),
+    figuresPanel(P.figures));
+}
+
+/* pipeline walkthrough: one case at a time, four steps, played or stepped */
+function walkthrough(cases) {
+  if (!cases || !cases.length) return "";
+  const names = { T: "Router, route T", A: "Spec-Guard accepts", F: "Spec-Guard falls back" };
+  const wrap = h("div", { class: "panel pad", id: "fx-walk" });
+  const body = h("div", { class: "wk" });
+  let cur = cases[0], stepN = 0, timer = null;
+  const steps = ["Program", "Execution", "Checks", "Answer"];
+  const stepBtns = h("ol", { class: "wk-steps" });
+  const stageBox = h("div", { class: "wk-stage" }), side = h("div", { class: "wk-side", "aria-live": "polite" });
+  const play = h("button", { type: "button", class: "btn primary" }, "Play");
+  const prev = h("button", { type: "button", class: "btn" }, "Back"), next = h("button", { type: "button", class: "btn" }, "Next");
+  let img = null, ov = null;
+  const q = h("p", { class: "wk-q" });
+  const leg = h("span", { class: "small muted" });
+
+  async function load(c) {
+    cur = c; stop(); stageBox.replaceChildren(h("p", { class: "muted small" }, "Loading the image"));
+    let src = null;
+    try {
+      if (c.mode === "openref") src = orImg(await api(`/api/rows/${encodeURIComponent(c.id)}`));
+      else { const [sp, i] = c.id.split(":"); src = rcImg(await api(`/api/refcoco/rows/${sp}/${i}`), sp, +i); }
+    } catch { src = null; }
+    const [W, H] = c.image_size;
+    img = h("div", { class: "stage", style: `aspect-ratio:${W}/${H};max-width:min(100%, calc(58vh * ${W} / ${H}))` });
+    const inner = h("div", { class: "zoom" });
+    inner.append(src ? h("img", { src, alt: `Image for “${c.query}”`, draggable: "false" }) : h("div", { class: "empty" }, "Image not stored here; boxes at their true positions."));
+    ov = h("svg", { class: "ov", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", "aria-hidden": "true" });
+    inner.append(ov); img.append(inner); stageBox.replaceChildren(img);
+    q.textContent = `“${c.query}”`;
+    show(0);
+  }
+  const R_ = (b, cls, extra = {}) => h("rect", { class: cls, x: b[0], y: b[1], width: Math.max(1, b[2] - b[0]), height: Math.max(1, b[3] - b[1]), ...extra });
+  function drawStep(n) {
+    const c = cur, [W, H] = c.image_size, lw = Math.max(W, H) / 260;
+    ov.replaceChildren(); ov.style.setProperty("--lw", lw);
+    if (n >= 1) {
+      const gAll = h("g", { class: "wk-all" });
+      c.finds.forEach((f, k) => f.boxes.forEach(b => gAll.append(R_(b, k ? "wk-b2" : (c.grouping ? "wk-cand" : "wk-b1")))));
+      ov.append(gAll);
+      if (c.grouping) {
+        const gl = h("g", { class: "wk-line" }); c.grouping.line.forEach(b => gl.append(R_(b, "wk-row"))); ov.append(gl);
+        ov.append(R_(c.grouping.pick, "wk-pick"));
+      }
+      if (c.program_box) ov.append(R_(c.program_box, "wk-ret"));
+    }
+    if (n >= 3) {
+      ov.replaceChildren();
+      c.gt.forEach(b => { ov.append(R_(b, "wk-gth"), R_(b, "wk-gt")); });
+      c.vlm.forEach(b => ov.append(R_(b, "wk-vl")));
+      c.answer.forEach(b => ov.append(R_(b, "wk-ans")));
+    }
+    if (!reduced) $$("rect", ov).forEach((r, i) => { r.style.animationDelay = `${Math.min(i * 6, 900)}ms`; r.classList.add("pop"); });
+  }
+  function sideFor(n) {
+    const c = cur, el = [];
+    if (n === 0) {
+      if (c.mode === "openref") el.push(h("p", { class: "small muted" }, "Qwen2.5-Coder-7B rewrites the expression as one line in a fixed format:"),
+        h("pre", { class: "wk-code" }, c.normalised), h("p", { class: "small" }, h("span", { class: "tag t" }, `Route ${c.route}`), " ", c.route_reason, ". The program below is written by code from the parsed line; no language model writes it."));
+      else el.push(h("p", { class: "small muted" }, `${c.program_source}:`));
+      el.push(h("pre", { class: "wk-code", html: pyHtml(c.program) }));
+    } else if (n === 1) {
+      el.push(h("p", {}, "The program runs; every perception call is logged:"));
+      const ul = h("ul", { class: "wk-calls" });
+      c.finds.forEach((f, k) => ul.append(h("li", {}, h("code", {}, `find("${f.arg}")`), ` returned ${f.n} patch${f.n === 1 ? "" : "es"}`,
+        h("i", { class: `sw ${c.grouping ? "cand" : k ? "b2" : "b1"}` }))));
+      if (c.grouping) ul.append(h("li", {}, h("code", {}, `group_lines(…, "${c.grouping.side1}")`), ` makes ${c.grouping.lines} rows; row ${c.grouping.line_index} is kept`, h("i", { class: "sw row" })),
+        h("li", {}, h("code", {}, `order_from(row, "${c.grouping.side2}")[${c.grouping.k - 1}]`), " is the answer", h("i", { class: "sw pick" })));
+      if (c.depth_calls) ul.append(h("li", {}, h("code", {}, "compute_depth()"), ` on ${c.depth_calls} patches`));
+      if (c.program_box) ul.append(h("li", {}, "the program returns the dotted patch", h("i", { class: "sw ret" })));
+      el.push(ul);
+    } else if (n === 2) {
+      const s = c.spec_guard || {}, list = h("ul", { class: "wk-checks" });
+      const row = (state, t, why) => h("li", { class: state }, h("b", {}, { pass: "✓", fail: "✗", info: "•", route: "→" }[state]), h("span", {}, t, h("small", {}, why)));
+      if (c.mode === "openref") list.append(row("route", `Route ${c.route}`, c.route_reason));
+      for (const [k, v] of Object.entries(s)) {
+        const info = /G2/.test(k) && c.mode === "refcoco";
+        list.append(row(info ? "info" : v.fires ? "fail" : "pass", k.replace(" (G4, E21)", "").replace(" (E22)", "") + (info ? " (reported only)" : ""), v.reason));
+      }
+      el.push(list);
+      if (c.property_test) el.push(h("p", { class: "small muted" }, "Property test written by DeepSeek-Coder-V2-Lite, run on the returned patch:"),
+        h("pre", { class: "wk-code", html: pyHtml(c.property_test) }),
+        ...c.test_finds.map(f => h("p", { class: "small" }, `“${f.arg}” searched inside the returned patch: ${f.n} found.`)));
+      list.querySelectorAll("li").forEach((li, i) => { if (!reduced) { li.style.animationDelay = `${i * 260}ms`; li.classList.add("pop"); } });
+    } else {
+      const why = c.mode === "refcoco" ? (c.route === "program" ? "Every check passed: the program’s patch is the answer." : "A check fired: the answer falls back to the detector’s top box (B0).")
+        : (c.answer.length ? "The template program’s patch is the answer." : "The program found nothing: the answer is empty.");
+      el.push(h("p", {}, why),
+        h("div", { class: "wk-iou" }, h("div", {}, h("span", { class: "sw ans" }), "System", h("b", {}, f2(c.iou_system)), h("small", {}, "IoU with the ground truth")),
+          h("div", {}, h("span", { class: "sw vl" }), "Qwen3-VL-8B", h("b", {}, f2(c.iou_vlm)), h("small", {}, "IoU with the ground truth"))),
+        h("p", { class: "small muted" }, `Control: route and answer equal the archived run (${c.control.same_route && c.control.same_answer_boxes ? "passed" : "FAILED"}). Run by scripts/walkthrough_run.py at code ${c.run_commit}.`));
+    }
+    side.replaceChildren(h("h4", {}, `${n + 1}. ${steps[n]}`), ...el);
+  }
+  function show(n) {
+    stepN = n;
+    $$("li", stepBtns).forEach((li, i) => { li.classList.toggle("on", i === n); li.classList.toggle("done", i < n); $("button", li).setAttribute("aria-current", i === n ? "step" : "false"); });
+    drawStep(n); sideFor(n);
+    prev.disabled = n === 0; next.disabled = n === steps.length - 1;
+    leg.replaceChildren(...(n === 0 ? [] : n < 3 ? ["Boxes as listed beside the image"]
+      : ["Legend: ", h("span", { class: "sw ans" }), "answer ", h("span", { class: "sw gt" }), "ground truth ", h("span", { class: "sw vl" }), "Qwen3-VL-8B"]));
+  }
+  function stop() { if (timer) clearInterval(timer); timer = null; play.textContent = "Play"; }
+  play.addEventListener("click", () => {
+    if (timer) return stop();
+    play.textContent = "Pause"; if (stepN === steps.length - 1) show(0);
+    timer = setInterval(() => { if (stepN < steps.length - 1) show(stepN + 1); else stop(); }, 2600);
+  });
+  prev.addEventListener("click", () => { stop(); show(Math.max(0, stepN - 1)); });
+  next.addEventListener("click", () => { stop(); show(Math.min(steps.length - 1, stepN + 1)); });
+  steps.forEach((s, i) => stepBtns.append(h("li", {}, h("button", { type: "button", onclick: () => { stop(); show(i); } }, h("span", {}, i + 1), s))));
+  const pick = segCtl("Case", cases.map(c => [c.key, names[c.key] || c.path]), cases[0].key, k => load(cases.find(c => c.key === k)));
+  wrap.append(h("div", { class: "wk-head" }, h("div", {}, h("h3", {}, "Watch the pipeline run"),
+      h("p", { class: "small muted" }, "Real runs of the code that serves this site, every perception call logged (scripts/walkthrough_run.py). Cases fixed by a rule before the run, one per path.")), pick),
+    q, stepBtns, h("div", { class: "wk-body" }, stageBox, side),
+    h("div", { class: "wk-ctl" }, prev, play, next, leg));
+  load(cases[0]);
+  return wrap;
+}
+
+function grefcocoPanel(g, pub) {
+  if (!g) return "";
+  const splits = [["testA", "testA"], ["testB", "testB"], ["conf", "train sample (untouched)"]];
+  let sp = "testA", met = "exact_set";
+  const holder = h("div");
+  const SYS = [["router", "Decidable router", "var(--t)"], ["vlm", "Qwen3-VL-8B, prompt S1", "var(--vlm)"], ["vlm_e", "Qwen3-VL-8B, prompt S1E (may answer empty)", "var(--warn)"]];
+  const draw = () => {
+    const d = g[sp], groups = [["none", "No target", d.n.none], ["single", "One target", d.n.single], ["multiple", "Several targets", d.n.multiple], ["all", "All rows", d.n.all]];
+    const series = SYS.filter(([k]) => d.scores[k]).map(([k, n, col]) => ({ name: n, color: col, values: Object.fromEntries(groups.map(([gk]) => [gk, d.scores[k][gk][met]])) }));
+    const refs = met === "sample_f1" && sp === "testA" ? (pub && pub.grefcoco_testA || []).map(p => ({ name: p.system, v: p.sample_f1, source: p.source, group: "all" })) : [];
+    holder.replaceChildren(legendRow(series, refs.length ? [refLegend_()] : []),
+      h("div", { class: "scroll" }, h("div", { style: "min-width:640px" }, hbars({ groups, series, unit: "%", refs, aria: "gRefCOCO scores by number of targets" }))),
+      refNote(refs, "VGE, arXiv 2611.22625, Table 1(a)"),
+      d.role === "confirmation" ? h("p", { class: "note" }, "The train sample was never used to design or tune anything; it is where the post hoc combination rule (E32) was confirmed.") : "");
+  };
+  draw();
+  const panel = figPanel("Saying “nothing here”: gRefCOCO, where some expressions have no target", "results/e32/e32_e33_*_results.json (E30, E32, E33)",
+    h("p", { class: "note", style: "margin:0 0 12px" }, "A 2026 VLM almost always draws a box. The router’s program returns an empty answer when the detector finds nothing, so it says “nothing here” far more often. It is behind on expressions with one target: both are shown."),
+    h("div", { class: "fx-ctl" }, segCtl("Split", splits, sp, v => { sp = v; draw(); }), segCtl("Metric", [["exact_set", "Exact set (no-target accuracy)"], ["sample_f1", "Sample F1"]], met, v => { met = v; draw(); })),
+    holder, h("p", { class: "note" }, "Exact set: every target found and nothing else; on no-target rows this is no-target accuracy. Sample F1 follows VGE (arXiv 2611.22625). S1E was not run on testB."));
+  panel.id = "fx-g";
+  return panel;
+}
+
+function refadvPanel(adv, pub) {
+  if (!adv) return "";
+  const subsets = [["all", "All"], ["negation", "With negation"], ["no_negation", "Without"], ["distractors_2_3", "2-3 distractors"],
+    ["distractors_4_6", "4-6"], ["distractors_7plus", "7 or more"], ["coco", "COCO images"], ["openimages", "Open Images"]];
+  const SYS = [["specguard", "Spec-Guard", "var(--t)"], ["program", "Program alone", "var(--p)"], ["b0", "Detector only (B0)", "var(--ink-3)"], ["qwen3vl", "Qwen3-VL-8B", "var(--vlm)"]];
+  let thr = "acc@0.5";
+  const holder = h("div");
+  const draw = () => {
+    const groups = subsets.map(([k, n]) => [k, n, adv.scores.specguard[k].n]);
+    const series = SYS.map(([k, n, col]) => ({ name: n, color: col, values: Object.fromEntries(groups.map(([gk]) => [gk, adv.scores[k][gk][thr]])) }));
+    const refs = thr === "acc@0.5" ? (pub && pub.refadv_s || []).map(p => ({ name: p.system, v: p.acc50, source: p.source, group: "all" })) : [];
+    holder.replaceChildren(legendRow(series, refs.length ? [refLegend_()] : []),
+      h("div", { class: "scroll" }, h("div", { style: "min-width:640px" }, hbars({ groups, series, unit: "%", refs, aria: "Ref-Adv-s accuracy by subset" }))),
+      refNote(refs, "Ref-Adv repository table, ICLR 2026"));
+  };
+  draw();
+  const panel = figPanel("Adversarial expressions: Ref-Adv-s (ICLR 2026)", "results/e31/e31_results.json (E31)",
+    h("p", { class: "note", style: "margin:0 0 12px" }, `The checks lift the program on hard distractors and negation, and fall back to the detector on ${f2(adv.fallback_rate, 1)}% of rows; an end-to-end 2026 VLM stays far ahead here. Reported as a limit.`),
+    h("div", { class: "fx-ctl" }, segCtl("IoU threshold", [["acc@0.5", "IoU 0.5"], ["acc@0.75", "0.75"], ["acc@0.9", "0.9"]], thr, v => { thr = v; draw(); })),
+    holder);
+  panel.id = "fx-adv";
+  return panel;
+}
+
+function selectivePanel(comp, noteA) {
+  if (!comp.length) return "";
+  let k = 0;
+  const holder = h("div");
+  const RULES = [["all", "All programs", "circle"], ["whole_image_only", "Whole-image rule passed", "square"], ["test_only", "Property test passed", "triangle"], ["both", "Both passed (Spec-Guard)", "star"]];
+  const shape = (s, x, y, r, cls) => s === "circle" ? h("circle", { cx: x, cy: y, r, class: cls }) : s === "square" ? h("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, class: cls })
+    : s === "triangle" ? h("path", { d: `M${x},${y - r * 1.2}L${x + r * 1.1},${y + r * .8}L${x - r * 1.1},${y + r * .8}Z`, class: cls })
+      : h("path", { d: Array.from({ length: 10 }, (_, i) => { const a = Math.PI / 5 * i - Math.PI / 2, rr = i % 2 ? r * .55 : r * 1.4; return `${i ? "L" : "M"}${x + rr * Math.cos(a)},${y + rr * Math.sin(a)}`; }).join("") + "Z", class: cls });
+  const draw = () => {
+    const c = comp[k], W = 640, H = 330, l = 56, r = 20, t = 14, b = 44, X = v => l + (W - l - r) * v / 100;
+    const ys = [c.accuracy.b0, c.accuracy.program, ...Object.values(c.accepted_acc)], na0 = noteA && noteA[c.setting];
+    if (na0) ys.push(na0.b0_acc_accepted);
+    const lo = Math.max(0, Math.floor((Math.min(...ys) - 5) / 10) * 10), Y = v => t + (H - t - b) * (1 - (v - lo) / (100 - lo));
+    const yt = []; for (let v = lo; v <= 100; v += 10) yt.push(v);
+    const svg = h("svg", { class: "ch", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Accuracy of accepted programs against coverage, ${c.setting}` });
+    for (const v of [0, 20, 40, 60, 80, 100]) svg.append(h("line", { class: "gl", x1: X(v), x2: X(v), y1: t, y2: H - b }), h("text", { x: X(v), y: H - b + 18, "text-anchor": "middle" }, v));
+    for (const v of yt) svg.append(h("line", { class: "gl", x1: l, x2: W - r, y1: Y(v), y2: Y(v) }), h("text", { x: l - 8, y: Y(v) + 4, "text-anchor": "end" }, v));
+    
+    svg.append(h("text", { x: (l + W - r) / 2, y: H - 6, "text-anchor": "middle" }, "Programs accepted (coverage, %)"),
+      h("text", { x: 14, y: (t + H - b) / 2, transform: `rotate(-90 14 ${(t + H - b) / 2})`, "text-anchor": "middle" }, "Accuracy of accepted programs (%)"));
+    const b0 = h("g", { class: "m" }, h("line", { x1: l, x2: W - r, y1: Y(c.accuracy.b0), y2: Y(c.accuracy.b0), style: "stroke:var(--ink-3);stroke-dasharray:4 4" }),
+      h("text", { x: W - r - 4, y: Y(c.accuracy.b0) - 6, "text-anchor": "end" }, `detector alone, all rows ${f2(c.accuracy.b0)}`),
+      h("rect", { class: "hit", x: l, y: Y(c.accuracy.b0) - 6, width: W - l - r, height: 12 }));
+    hover(b0, `<b>Detector only (B0)</b>, every row: ${f2(c.accuracy.b0)}%`);
+    svg.append(b0);
+    const na = noteA && noteA[c.setting];
+    if (na) {
+      const m = h("g", { class: "m" }, shape("circle", X(na.accepted_pct), Y(na.b0_acc_accepted), 7, "na"), h("rect", { class: "hit", x: X(na.accepted_pct) - 10, y: Y(na.b0_acc_accepted) - 10, width: 20, height: 20 }));
+      hover(m, `<b>Detector alone on the same accepted rows</b>: ${f2(na.b0_acc_accepted)}%<br>accepted programs ${f2(na.program_acc_accepted)}%; difference ${sg(na.program_minus_b0_accepted[0])} (95% interval ${sg(na.program_minus_b0_accepted[1])} to ${sg(na.program_minus_b0_accepted[2])})`);
+      svg.append(m);
+    }
+    for (const [rk, rn, sh] of RULES) {
+      const x = rk === "all" ? 100 : c.coverage[rk], y = rk === "all" ? c.accuracy.program : c.accepted_acc[rk];
+      const m = h("g", { class: "m" }, shape(sh, X(x), Y(y), 7, rk === "both" ? "sgp" : "pp"), h("rect", { class: "hit", x: X(x) - 10, y: Y(y) - 10, width: 20, height: 20 }));
+      hover(m, `<b>${esc(rn)}</b><br>coverage ${f2(x, 1)}%, accuracy ${f2(y)}%`);
+      svg.append(m);
+    }
+    holder.replaceChildren(h("div", { class: "legend" }, ...RULES.map(([, n, sh]) => h("span", {}, h("svg", { viewBox: "0 0 16 16", width: 14, height: 14 }, shape(sh, 8, 8, 5, n.startsWith("Both") ? "sgp" : "pp")), n)),
+      h("span", {}, h("i", { style: "background:none;border-top:2px dashed var(--ink-3);border-radius:0;height:0" }), "detector alone, all rows"),
+      na ? h("span", {}, h("svg", { viewBox: "0 0 16 16", width: 14, height: 14 }, h("circle", { cx: 8, cy: 8, r: 5, class: "na" })), "detector alone, same accepted rows") : ""),
+      h("div", { class: "scroll" }, h("div", { style: "min-width:420px;max-width:760px" }, svg)),
+      na ? h("p", { class: "note" }, `Read this with care: on ${c.setting} the detector alone is ${f2(na.b0_acc_accepted)}% on the very rows whose programs the checks accept, against ${f2(na.program_acc_accepted)}% for those programs. The checks select reliable programs; they do not make programs better than the detector.`)
+        : h("p", { class: "note" }, "Post hoc decomposition of registered runs (A2)."));
+  };
+  draw();
+  const panel = figPanel("What the checks accept is far more precise", "results/analysis/a1_a2.json (A2, post hoc) and results/e24/e24_results.json",
+    h("div", { class: "fx-ctl" }, segCtl("Benchmark", comp.map((c, i) => [String(i), c.setting]), "0", v => { k = +v; draw(); })), holder);
+  panel.id = "fx-sel";
+  return panel;
+}
+
+function costPanel(cost) {
+  if (!cost) return "";
+  const rows = [];
+  const COL = { "Decidable router": "var(--t)", "Spec-Guard": "var(--t)", "Program alone": "var(--p)", "Detector only (B0)": "var(--ink-3)", "Qwen3-VL-8B, S1": "var(--vlm)" };
+  for (const [, s] of Object.entries(cost)) for (const [n, v] of Object.entries(s.systems)) rows.push({ set: s.label, metric: s.metric, n, ...v });
+  const W = 900, l = 300, r = 110, rh = 30, H = 40 + rh * rows.length, lo = Math.log10(0.2), hi = Math.log10(16), X = v => l + (W - l - r) * (Math.log10(v) - lo) / (hi - lo);
+  const svg = h("svg", { class: "ch", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Seconds per query" });
+  for (const v of [0.25, 0.5, 1, 2, 4, 8]) svg.append(h("line", { class: "gl", x1: X(v), x2: X(v), y1: 20, y2: H - 10 }), h("text", { x: X(v), y: 14, "text-anchor": "middle" }, `${v} s`));
+  let last = null;
+  rows.forEach((d, i) => {
+    const y = 34 + i * rh;
+    if (d.set !== last) { svg.append(h("text", { class: "lab", x: 4, y: y + 4, style: "font-weight:600" }, d.set)); last = d.set; }
+    const g = h("g", { class: "m" }, h("text", { class: "lab", x: l - 12, y: y + 4, "text-anchor": "end" }, d.n),
+      h("line", { x1: X(d.p10_s), x2: X(d.p90_s), y1: y, y2: y, style: `stroke:${COL[d.n] || "var(--ink-2)"};stroke-width:5;stroke-linecap:round;opacity:.35` }),
+      h("circle", { class: "mark", cx: X(d.median_s), cy: y, r: 6, style: `fill:${COL[d.n] || "var(--ink-2)"}` }),
+      h("text", { class: "val", x: W - r + 10, y: y + 4 }, `${d.metric === "sample_f1" ? "F1" : "Acc"} ${f2(d.accuracy, 1)}`),
+      h("rect", { class: "hit", x: 0, y: y - rh / 2, width: W, height: rh }));
+    hover(g, `<b>${esc(d.n)}</b> (${esc(d.set)})<br>median ${f2(d.median_s)} s; 10th to 90th percentile ${f2(d.p10_s)} to ${f2(d.p90_s)} s<br>${d.metric === "sample_f1" ? "sample F1" : "accuracy at IoU 0.5"} ${f2(d.accuracy)}`);
+    svg.append(g);
+  });
+  const panel = figPanel("What it costs: seconds per query on the same rows", "results/analysis/cost_accuracy.json (descriptive)",
+    h("p", { class: "note", style: "margin:0 0 12px" }, "Stage timings recorded for every row, one H100 NVL shard, batch 1; the dot is the median, the bar the 10th to 90th percentile. The checked programs are slower than an 8B VLM in this implementation; training-free, but not cheaper."),
+    h("div", { class: "scroll" }, h("div", { style: "min-width:640px" }, svg)));
+  panel.id = "fx-cost";
+  return panel;
+}
+
+function hypPanel(hyps) {
+  if (!hyps || !hyps.length) return "";
+  const panel = figPanel("Registered hypotheses, Phase 2B", "results/e30, e31, e32 result files",
+    h("p", { class: "note", style: "margin:0 0 12px" }, "Each was written before its run; a hypothesis holds when the 95% interval is above zero. Falsified ones are shown as prominently as the rest."),
+    h("div", { class: "scroll" }, h("table", { class: "tbl" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Experiment"), h("th", {}, "Hypothesis"), h("th", {}, "Data"), h("th", { class: "n" }, "Difference"), h("th", { class: "n" }, "95% interval"), h("th", {}, "Verdict"))),
+      h("tbody", {}, ...hyps.map(x => h("tr", {}, h("td", {}, h("b", {}, x.exp)), h("td", {}, x.name.replace(/\bvlm_e\b/g, "Qwen3-VL-8B (S1E)").replace(/\bvlm\b/g, "Qwen3-VL-8B (S1)").replace(/\bC\b/g, "rule C"),
+        x.post_hoc ? h("span", { class: "tag", style: "margin-left:6px" }, "post hoc on this split") : ""), h("td", { class: "muted" }, x.split),
+        h("td", { class: "n" }, sg(x.diff)), h("td", { class: "n" }, `${sg(x.ci95[0])} to ${sg(x.ci95[1])}`),
+        h("td", {}, h("span", { class: `tag ${x.holds ? "ok" : "warn"}` }, x.holds ? "Holds" : "Falsified"))))))));
+  panel.id = "fx-hyp";
+  return panel;
+}
+
+function limitsPanel(P, R) {
+  const L = [], g = P.grefcoco, c = P.components || [], adv = P.refadv, na = P.note_a, cost = P.cost;
+  if (g) L.push(["Far below a 2026 VLM on single-target expressions", `gRefCOCO testA, one target: sample F1 ${f2(g.testA.scores.router.single.sample_f1)} against ${f2(g.testA.scores.vlm.single.sample_f1)} for Qwen3-VL-8B.`]);
+  if (c[0]) L.push(["Spec-Guard below the detector alone on RefCOCO testB", `${f2(c[0].accuracy.both)} against ${f2(c[0].accuracy.b0)}; on RefCOCO+ testB the two are level (${f2(c[1].accuracy.both)} and ${f2(c[1].accuracy.b0)}).`]);
+  const e32 = (P.hypotheses || []).find(x => x.exp === "E32" && /H1/.test(x.name) && /untouched/.test(x.split));
+  if (e32) L.push(["Combining the router’s empty answer with the VLM does not help", `On untouched data the combination is ${sg(e32.diff)} points below Qwen3-VL-8B (95% interval ${sg(e32.ci95[0])} to ${sg(e32.ci95[1])}).`]);
+  if (g && P.router_rejections) L.push(["The router’s empty answers are imprecise", `It answers nothing on ${f2(g.conf.router_empty_rate.present, 1)}% of untouched rows that do have a target; ${f2(Math.min(...Object.values(P.router_rejections)), 0)} to ${f2(Math.max(...Object.values(P.router_rejections)), 0)}% of these are programs that raised an error.`]);
+  const e33 = (P.hypotheses || []).find(x => x.exp === "E33" && /H1/.test(x.name) && /untouched/.test(x.split));
+  if (e33) L.push(["The lead on absent objects shrinks on untouched data", `Router over Qwen3-VL-8B told it may answer empty: ${sg(e33.diff)} points on the untouched sample (95% interval ${sg(e33.ci95[0])} to ${sg(e33.ci95[1])}).`]);
+  if (adv) L.push(["Adversarial expressions", `Ref-Adv-s: Spec-Guard ${f2(adv.scores.specguard.all["acc@0.5"])} against ${f2(adv.scores.qwen3vl.all["acc@0.5"])} for Qwen3-VL-8B.`]);
+  if (na) { const a = na["RefCOCO testB"]; L.push(["Accepted rows are easy rows", `On RefCOCO testB the detector alone is ${f2(a.b0_acc_accepted)}% on the rows whose programs are accepted, against ${f2(a.program_acc_accepted)}% for those programs.`]); }
+  if (cost) { const r = cost.grefcoco_testA.systems, a = cost.refadv_s.systems; L.push(["Not cheaper per query than an 8B VLM", `Median ${f2(r["Decidable router"].median_s)} s against ${f2(r["Qwen3-VL-8B, S1"].median_s)} s (gRefCOCO); Spec-Guard ${f2(a["Spec-Guard"].median_s)} s against ${f2(a["Qwen3-VL-8B, S1"].median_s)} s (Ref-Adv-s).`]); }
+  const panel = h("div", { class: "panel pad", id: "fx-lim" }, h("h3", {}, "What this work does not show"),
+    h("p", { class: "note", style: "margin:4px 0 14px" }, "Stated in the paper beside the claims they qualify. No claim is made of beating 2026 VLMs or trained systems."),
+    h("ol", { class: "fx-lims" }, ...L.map(([t, d]) => h("li", {}, h("b", {}, t), h("span", {}, d)))));
+  return panel;
+}
+
+function figuresPanel(figs) {
+  if (!figs || !figs.length) return "";
+  const url = n => STATIC ? `data/fig/${n}.png` : `/api/figure/${n}`;
+  const dlg = h("dialog", { class: "fx-dlg", "aria-label": "Figure" });
+  const show = f => { dlg.replaceChildren(h("button", { type: "button", class: "icon-btn fx-x", "aria-label": "Close", onclick: () => dlg.close() }, "×"),
+    h("img", { src: url(f.name), alt: f.title }), h("p", {}, h("b", {}, f.name), " ", f.title)); dlg.showModal(); };
+  dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+  const panel = h("div", { class: "panel pad", id: "fx-figs" }, h("h3", {}, "Paper figures"),
+    h("p", { class: "note", style: "margin:4px 0 14px" }, "Drawn from archived JSON by committed scripts and checked for the ACL page (docs/figure_audit.md). Figures that show gRefCOCO or Ref-Adv-s images are kept out of the public site."),
+    h("div", { class: "fx-gal" }, ...figs.map(f => h("button", { type: "button", class: "fx-fig", onclick: () => show(f) },
+      h("img", { src: url(f.name), alt: "", loading: "lazy" }), h("span", {}, f.title)))), dlg);
+  return panel;
 }
 
 /* ------------------------------------------------------------------ start */

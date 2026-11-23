@@ -18,6 +18,7 @@
     </a>
     <nav class="tabs" aria-label="Sections">
       <a href="#overview">Overview</a>
+      <a href="#findings">Findings</a>
       <a href="#live">Live demo</a>
       <a href="#explorer">Test set explorer</a>
       <a href="#results">Results</a>
@@ -44,8 +45,10 @@
           deterministic program answers; otherwise a code model writes one, and every program runs in a sandbox under checks.</p>
         <div class="ctas">
           <a class="btn primary" href="#live">Run a query</a>
+          <a class="btn" href="#findings">Watch the pipeline run</a>
           <a class="btn" href="#explorer">Browse the test set</a>
         </div>
+        <p class="credit small">M.Tech dissertation by <a href="#about">MD Humayun</a> (P25IS016), supervised by <a href="#about">Prof. Mukesh A. Zaveri</a>. Department of Computer Science and Engineering, SVNIT Surat.</p>
       </div>
       <div class="panel demo-card" id="ov-demo" aria-live="polite"></div>
     </div>
@@ -55,6 +58,15 @@
       <li><h3>Route</h3><p>If the line parses and every part of it is stated in the expression, a template program answers with no language model. Otherwise a program is generated.</p></li>
       <li><h3>Execute and check</h3><p>The program runs over SAM 3, SigLIP 2 and Depth Anything V2 in a restricted sandbox. Spec-Guard checks the program and its answer.</p></li>
     </ol>
+  </section>
+
+  <!-- Findings -->
+  <section class="view" id="v-findings" aria-labelledby="h-findings">
+    <div class="view-head">
+      <div><h2 id="h-findings">Findings against 2026 systems</h2>
+        <p>The pipeline running step by step, then the comparison with a 2026 vision-language model on two 2026 benchmarks, what the checks accept, what it costs, every registered hypothesis and every limit. Each number is read from an archived result file named on its panel.</p></div>
+    </div>
+    <div class="res-grid" id="fx"></div>
   </section>
 
   <!-- Live -->
@@ -190,13 +202,44 @@
 
   <!-- About -->
   <section class="view" id="v-about" aria-labelledby="h-about">
-    <div class="view-head"><div><h2 id="h-about">About this service</h2></div></div>
+    <div class="view-head"><div><h2 id="h-about">About this work</h2>
+      <p class="lede small">An M.Tech dissertation of the Department of Computer Science and Engineering, Sardar Vallabhbhai National Institute of Technology (SVNIT), Surat, Gujarat.</p></div></div>
+    <div class="people" id="people">
+      <article class="panel person">
+        <img src="static/people/humayun.jpg" alt="MD Humayun" width="480" height="600">
+        <div>
+          <p class="role">Researcher</p>
+          <h3>MD Humayun</h3>
+          <dl>
+            <dt>Admission No.</dt><dd>P25IS016</dd>
+            <dt>Programme</dt><dd>M.Tech, Computer Science and Engineering with Specialization in Information Security and Privacy</dd>
+            <dt>Department</dt><dd>Department of Computer Science and Engineering</dd>
+            <dt>Institute</dt><dd>Sardar Vallabhbhai National Institute of Technology (SVNIT), Surat, Gujarat</dd>
+          </dl>
+        </div>
+      </article>
+      <article class="panel person">
+        <img src="static/people/zaveri.jpg" alt="Prof. Mukesh A. Zaveri" width="480" height="600">
+        <div>
+          <p class="role">Supervisor</p>
+          <h3>Prof. Mukesh A. Zaveri</h3>
+          <dl>
+            <dt>Position</dt><dd>Professor, Department of Computer Science and Engineering, SVNIT, Surat</dd>
+            <dt>Education</dt><dd>Ph.D., Electrical Engineering, IIT Bombay (2005); M.E., M. S. University of Baroda; B.E., Electronics, REC Surat (now SVNIT)</dd>
+            <dt>Research</dt><dd>Computer vision, image processing, audio and speech signal processing, machine learning, wireless sensor networks, Internet of Things</dd>
+            <dt>Roles held</dt><dd>Head, Computer Science and Engineering; Dean Academics, SVNIT</dd>
+            <dt>Contact</dt><dd><a href="mailto:mazaveri@coed.svnit.ac.in">mazaveri@coed.svnit.ac.in</a> · <a href="https://svnit.ac.in/maz/" rel="noopener" target="_blank">Home page</a></dd>
+          </dl>
+        </div>
+      </article>
+    </div>
+    <h3 class="about-sub">About this service</h3>
     <div class="about" id="about"></div>
   </section>
 </main>
 
 <footer class="foot"><div>
-  <span>Spec-Guard. M.Tech CSE (Information Security and Privacy), SVNIT Surat. Guide: Prof. Mukesh A. Zaveri.</span>
+  <span>Spec-Guard. MD Humayun (P25IS016), M.Tech CSE (Information Security and Privacy), Sardar Vallabhbhai National Institute of Technology, Surat. Supervisor: Prof. Mukesh A. Zaveri.</span>
   <span id="foot-ver" class="num"></span>
 </div></footer>
 <div class="tip" id="tip" role="tooltip"></div>
